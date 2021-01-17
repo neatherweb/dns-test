@@ -56,8 +56,8 @@ jobs:
                 sha256sum assets/*zip > assets/SHASUMS256.txt
 
           - name: Upload release assets
-              uses: skx/github-action-publish-binaries@master
-              env:
-                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-              with:
-                  args: './assets/*'
+            uses: skx/github-action-publish-binaries@master
+            env:
+                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            with:
+                args: './assets/*'
