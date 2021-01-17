@@ -16,6 +16,33 @@ import (
 		"time"
 		"github.com/miekg/dns"
 		log "github.com/sirupsen/logrus"
+		"github.com/dimchansky/utfbom"
+)
+var (
+	version = "0.3"
+	inputfile = flag.String("input", "", "CSV input file for queries, rows formatted as <type>,<name_to_query>,<[expected_answer0..n]>")
+	clientcount = flag.Int("clients", 1, "Number of client Go Routines to spawn")
+	server = flag.String("server", "", "DNS server to target - format '10.1.1.1:53'")
+	duration = flag.Int("duration", -1, "How long to run the test for in ms. Negative number will result in one iteration through the test inputs.")
+	delay = flag.Int("delay", 100, "Delay between client requests in ms. Use 0 for load test - with CAUTION not to DOS your prod systems!")
+	debug = flag.Bool("debug", false, "Enable debug messages")
+	jsonout = flag.Bool("json", false, "Ouput in json format")
+	validate = flag.Bool("validate", false, "Validate the 1st response matches the expected set of responses.")
+	outputinfo = `
+	The test output will show raw stats per client and overall, followed by
+	summary data.
+
+	Errors: (count) the server did not respond or there was a unexpected error.
+	Noanswer: (count) the server response was recieved by there was no answers to the query.
+	Success: (count) the server response had answers
+	Verified: (count) the server response was validated against the expected result set
+	Incorrect: (count) the server response was not found in the expected result set
+	QPS: queries per second for the test run
+	RTT-min: minimum round trip time observed
+	RTT-max: maximum round trip time observed
+	RTT-avg: average round trip time observed
+	Test duration(ms): overall test duration
+	`
 )
 
 type lookuprecord struct {
@@ -103,18 +130,18 @@ func dnsClient(wg *sync.WaitGroup, startSignal chan struct{}, stopSignal chan st
 					stats.Rtttotal = stats.Rtttotal + int(rtt.Milliseconds())
 					if *validate {
 						// check if response is in the expected response list
-						var answer_value string
+						var answerValue string
 						switch in.Answer[0].(type) {
 						case *dns.A:
-							answer_value = in.Answer[0].(*dns.A).A.String()
+							answerValue = in.Answer[0].(*dns.A).A.String()
 						case *dns.CNAME:
-							answer_value = in.Answer[0].(*dns.CNAME).Target
+							answerValue = in.Answer[0].(*dns.CNAME).Target
 						case *dns.MX:
-							answer_value = in.Answer[0].(*dns.MX).Mx 
+							answerValue = in.Answer[0].(*dns.MX).Mx 
 						}
 						gotmatch := false
 						for _, exp := range q.expects {
-							if answer_value == exp {
+							if strings.EqualFold(answerValue, exp) {
 								stats.Verified++
 								gotmatch = true
 								break
@@ -123,7 +150,7 @@ func dnsClient(wg *sync.WaitGroup, startSignal chan struct{}, stopSignal chan st
 						if !gotmatch { 
 							stats.Incorrect++
 							log.WithFields(log.Fields{
-								"first_answer": answer_value,
+								"first_answer": answerValue,
 								"expected": q.expects,
 								"request": m,
 								}).Warn("Answer does not match expected response")
@@ -162,8 +189,10 @@ func readInputs(inputfile string) *[]lookuprecord{
 	if err != nil {
 		log.Fatalln("Couldn't open the input csv file", err)
 	}
+	// handle utf bom at start of file (often from Excel exports)
+	sr, _ := utfbom.Skip(csvfile)
 	// Parse the file
-	r := csv.NewReader(csvfile)
+	r := csv.NewReader(sr)
 	r.FieldsPerRecord = -1
 	for {
 		record, err := r.Read()
@@ -193,37 +222,12 @@ func readInputs(inputfile string) *[]lookuprecord{
 	return &inputs
 }
 
-var (
-	inputfile = flag.String("input", "", "CSV input file for queries, rows formatted as <type>,<name_to_query>,<[expected_answer0..n]>")
-	clientcount = flag.Int("clients", 1, "Number of client Go Routines to spawn")
-	server = flag.String("server", "", "DNS server to target - format '10.1.1.1:53'")
-	duration = flag.Int("duration", -1, "How long to run the test for in ms. Negative number will result in one iteration through the test inputs.")
-	delay = flag.Int("delay", 100, "Delay between client requests in ms. Use 0 for load test - with CAUTION not to DOS your prod systems!")
-	debug = flag.Bool("debug", false, "Enable debug messages")
-	jsonout = flag.Bool("json", false, "Ouput in json format")
-	validate = flag.Bool("validate", false, "Validate the 1st response matches the expected set of responses.")
-	outputinfo = `
-	The test output will show raw stats per client and overall, followed by
-	summary data.
-
-	Errors: (count) the server did not respond or there was a unexpected error.
-	Noanswer: (count) the server response was recieved by there was no answers to the query.
-	Success: (count) the server response had answers
-	Verified: (count) the server response was validated against the expected result set
-	Incorrect: (count) the server response was not found in the expected result set
-	QPS: queries per second for the test run
-	RTT-min: minimum round trip time observed
-	RTT-max: maximum round trip time observed
-	RTT-avg: average round trip time observed
-	Test duration(ms): overall test duration
-	`
-)
-
 func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: %s \n", os.Args[0])
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "Output: %s \n", outputinfo)
+		fmt.Fprintf(os.Stderr, "Version: %s \n", version)
 	}
 	flag.Parse()
 	if *debug {
@@ -263,12 +267,12 @@ func main() {
 	if *jsonout {
 		type Output struct {
 			Duration int64
-			Qps float64
+			QPS float64
 			Summary teststat
 			Detail []teststat
 		}
 		outdata := Output{	Duration: timed.Milliseconds(),
-							Qps: qps,
+							QPS: qps,
 							Summary: *aggResult, 
 							Detail: results}
 		data, err := json.Marshal(outdata)
