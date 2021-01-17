@@ -164,7 +164,6 @@ func dnsClient(wg *sync.WaitGroup, startSignal chan struct{}, stopSignal chan st
 	}
 	stats.setAvg()
 	statchannel <- *stats
-	return
 }
 
 func aggregateResults(results[]teststat) *teststat {
@@ -260,9 +259,8 @@ func main() {
 	timed := time.Since(start)
 
 	aggResult := aggregateResults(results)
-	var qps float64
-
-	qps = float64((*aggResult).Success)/timed.Seconds()
+	
+	qps := float64((*aggResult).Success)/timed.Seconds()
 	
 	if *jsonout {
 		type Output struct {
