@@ -55,9 +55,9 @@ jobs:
                 zip assets/dns-test-${SOURCE_TAG}-darwin-amd64.zip bin/dns-test-darwin-amd64 README.md
                 sha256sum assets/*zip > assets/SHASUMS256.txt
 
-        - name: Upload release assets
-            uses: skx/github-action-publish-binaries@master
-            env:
-                GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-            with:
-                args: './assets/*'
+          - name: Upload release assets
+              uses: skx/github-action-publish-binaries@master
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              with:
+                  args: './assets/*'
